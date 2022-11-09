@@ -1,13 +1,14 @@
 from random import randint
 
 
+# Исключения
 class GameException(Exception):
     pass
 
 
 class MissException(GameException):
     def __str__(self):
-        return "Выстрел вне координат."
+        return "Выстрел за пределами карты!"
 
 
 class RepeatException(GameException):
@@ -15,82 +16,11 @@ class RepeatException(GameException):
         return "Вы уже сюда стреляли!"
 
 
-class ShipsException(GameException):
-    def __str__(self):
-        return "T_T"
+class PlaceShipsException(GameException):
+    pass
 
 
-class PlayingField:
-    def __init__(self, fog_of_war=False, size=6):
-        self.size = size
-        self.list = list
-        self.fog = fog_of_war
-        self.field = [["o"] * size for i in range(size)]
-        self.ships = []
-        self.busy = []
-        self.count = 0
-
-    def show(self):
-        print()
-        print("    | 0 | 1 | 2 | 3 | 4 | 5 | ")
-        for i, row in enumerate(self.field):
-            row_str = f"  {i} | {' | '.join(row)} | "
-            if self.fog:
-                row_str = row_str.replace("■", "o")
-            print(row_str)
-        print()
-
-    def check_coords(self, z):
-        return (0 <= z.x < self.size) and (0 <= z.y < self.size)
-
-    def add_ships(self, ship):
-        for i in ship.coordinates:
-            if i in self.busy or not self.check_coords(i):
-                raise ShipsException(Exception)
-        for i in ship.coordinates:
-            self.field[i.x][i.y] = "■"
-            self.busy.append(i)
-
-        self.ships.append(ship)
-        self.around_busy(ship)
-
-    def around_busy(self, ship):
-        around = [(0, 0), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
-        for i in ship.coordinates:
-            for ix, iy in around:
-                place = Cell(i.x + ix, i.y + iy)
-                if place not in self.busy and (self.check_coords(place)):
-                    self.busy.append(place)
-
-    def shot(self, z):
-        if not self.check_coords(z):
-            raise MissException()
-
-        if z in self.busy:
-            raise RepeatException()
-
-        self.busy.append(z)
-
-        for ship in self.ships:
-            if ship.shot(z) :
-                ship.durability -= 1
-                self.field[z.x][z.y] = 'X'
-                if ship.durability == 0:
-                    self.count += 1
-                    print("Потопил!")
-                    return False
-                else:
-                    print("Попал!")
-                    return True
-        self.field[z.x][z.y] = "T"
-        print("Промах!")
-        return False
-
-    # def begin(self):
-    #     self.busy = []
-
-
-class Ship:
+class Ship:  # Класс кораблей
     def __init__(self, start, length, direction):
         self.length = length
         self.start = start
@@ -112,11 +42,80 @@ class Ship:
             elif self.direction == 1:
                 y_now += i
             ship_coordinates.append(Cell(x_now, y_now))
-
         return ship_coordinates
 
 
-class Cell:
+class GameBoard:  # Класс игрового поля
+    def __init__(self, fog_of_war=False, size=6):
+        self.size = size
+        self.fog = fog_of_war
+        self.board = [["o"] * size for _ in range(size)]
+        self.ships = []
+        self.busy = []
+        self.count = 0
+
+    def __str__(self):
+        row_str = " \nX | 0 | 1 | 2 | 3 | 4 | 5 |\n"
+        for i, row in enumerate(self.board):
+            row_str += f"{i} | " + " | ".join(row) + " |\n"
+        if self.fog:  # Прячем корабли на поле противника
+            row_str = row_str.replace("■", "o")
+        return row_str
+
+    def check_coords(self, z):  # Проверка координат
+        return (-1 < z.x < self.size) and (-1 < z.y < self.size)
+
+    def add_ships(self, ship):  # Добавляем корабли на поле
+        for i in ship.coordinates:
+            if i in self.busy or not self.check_coords(i):
+                raise PlaceShipsException(Exception)
+        for i in ship.coordinates:
+            self.board[i.x][i.y] = "■"
+            self.busy.append(i)
+
+        self.ships.append(ship)  # добавляем в список кораблей
+        self.around_busy(ship)  # добавляем в список занятых координат
+
+    def around_busy(self, ship, game=False):  # Занятая территория
+        around = [(0, 0), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
+        for i in ship.coordinates:
+            for i_x, i_y in around:
+                place = Cell(i.x + i_x, i.y + i_y)
+                if place not in self.busy and (self.check_coords(place)):
+                    if game:
+                        self.board[place.x][place.y] = '.'
+                    self.busy.append(place)
+
+    def shot(self, z):
+        if not self.check_coords(z):
+            raise MissException()
+
+        if z in self.busy:
+            raise RepeatException()
+
+        self.busy.append(z)
+
+        for ship in self.ships:
+            if z in ship.coordinates:
+                ship.durability -= 1
+                self.board[z.x][z.y] = 'X'
+                if ship.durability == 0:
+                    self.count += 1
+                    self.around_busy(ship, game=True)
+                    print("Потопил!")
+                    return False
+                else:
+                    print("Попал!")
+                    return True
+        self.board[z.x][z.y] = "T"
+        print("Промах!")
+        return False
+
+    def begin(self):
+        self.busy = []
+
+
+class Cell:  # Выстрел
     def __init__(self, x, y):
         self.x = x
         self.y = y
@@ -128,10 +127,10 @@ class Cell:
         return f"({self.x}, {self.y})"
 
 
-class Fighter:
-    def __init__(self, field, field_ai):
-        self.field = field
-        self.field_ai = field_ai
+class Player:
+    def __init__(self, board, board_ai):
+        self.board = board
+        self.board_ai = board_ai
 
     def request(self):
         raise NotImplementedError()
@@ -140,53 +139,56 @@ class Fighter:
         while True:
             try:
                 target = self.request()
-                repeat = self.field_ai.shot(target)
+                repeat = self.board_ai.shot(target)
                 return repeat
             except GameException as i:
                 print(i)
 
 
-class AI(Fighter):
+class AI(Player):
     def request(self):
         s = Cell(randint(0, 5), randint(0, 5))
-        print(f"Противник бъет по: {s.x + 1} {s.y + 1}")
+        print(f"Противник бьет по: {s.x + 1} {s.y + 1}")
         return s
 
 
-class Player(Fighter):
+class User(Player):
     def request(self):
         while True:
-            print("В атаку!")
-            x = int(input("Введите номер строки: "))
-            if 0 > x > 5:
-                print("Введите 1 цифру от 0 до 5!")
+            target = input("Введите координаты 'x y' : ").split()
+            if len(target) != 2:
+                print("Введите 2 цифры от 0 до 5!")
                 continue
-            y = int(input("Введите номер столбца: "))
-            if 0 > y > 5:
-                print("Введите 1 цифру от 0 до 5!")
-
+            x, y = target
+            if not (x.isdigit()) or not (y.isdigit()):
+                print("Ошибка ввода! ")
+                continue
+            x, y = int(x), int(y)
             return Cell(x, y)
 
 
 class Game:
     def __init__(self, size=6):
         self.size = size
-        player = self.random_field()
-        ai = self.random_field()
-        ai.fog = True
+        one = self.random_board()
+        two = self.random_board()
+        two.fog = True
 
-        self.ai = AI(ai, player)
-        self.player = Player(player, ai)
+        self.map_ai = two
+        self.map_user = one
 
-    def random_field(self):
-        field = None
-        while field is None:
-            field = self.random_ships()
-        return field
+        self.user = User(one, two)
+        self.ai = AI(two, one)
+
+    def random_board(self):
+        board = None
+        while board is None:
+            board = self.random_ships()
+        return board
 
     def random_ships(self):
         lens = [3, 2, 2, 1, 1, 1, 1]
-        field = PlayingField()
+        board = GameBoard()
         count = 0
         for i in lens:
             while True:
@@ -194,40 +196,50 @@ class Game:
                 if count > 2000:
                     return None
                 ship = Ship(Cell(randint(0, 5), randint(0, 5)), i, randint(0, 1))
-
                 try:
-                    field.add_ships(ship)
+                    board.add_ships(ship)
                     break
-                except ShipsException:
+                except PlaceShipsException:
                     pass
-        # field.begin()
-        return field
+        board.begin()
+        return board
 
+    def print_map(self):  # Вывод игрового поля
+
+        map_user_list = list(self.map_user.__str__().split("\n"))
+        map_ai_list = list(self.map_ai.__str__().split("\n"))
+
+        done = [" Ваша поле: \t\t\t\t\t Поле соперника:"]
+        i = 0
+
+        while i < len(map_user_list):
+            done.append(map_user_list[i])
+            done.append('\t')
+            done.append(map_ai_list[i])
+            done.append('\n')
+            i += 1
+
+        print(' '.join(done))
+        return
 
     def output(self):
         num = 0
         while True:
             print()
-            print("Ваше поле:")
-            print(self.player.field)
-            print()
-            print("Поле противника:")
-            print(self.ai.field)
-            print()
+            g.print_map()
+            print('Игра началась!')
             if num % 2 == 0:
                 print("Ваш ход!")
-                repeat = self.player.move()
+                repeat = self.user.move()
             else:
                 print("Ход противника!")
                 repeat = self.ai.move()
             if repeat:
                 num -= 1
-
-            if self.ai.field.count == 7:
+            if self.ai.board.count == 7:
                 print("Победа!")
                 break
-
-            if self.player.field.count == 7:
+            if self.user.board.count == 7:
                 print("Компьютер выиграл!")
                 break
             num += 1
